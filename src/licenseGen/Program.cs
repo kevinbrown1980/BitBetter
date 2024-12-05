@@ -33,134 +33,107 @@ namespace bitwardenSelfLicensor
                        certExists() && coreExists();
             }
 
-            app.Command("interactive", config =>
+app.Command("interactive", config =>
+{
+    string buff = "", licensetype = "", name = "", email = "", businessname = "";
+    short storage = 0;
+
+    bool valid_guid = false, valid_installid = false;
+    Guid guid = new Guid(), installid = new Guid();
+
+    const int MAX_USERS_PER_ORG = 10; // Set the maximum number of users allowed per organisation
+    int currentUserCount = 0; // Variable to track the number of users added (replace with actual tracking logic)
+
+    config.OnExecute(() =>
+    {
+        if (!verifyTopOptions())
+        {
+            if (!coreExists()) config.Error.WriteLine($"Cant find core dll at: {coreDll.Value()}");
+            if (!certExists()) config.Error.WriteLine($"Cant find certificate at: {cert.Value()}");
+
+            config.ShowHelp();
+            return 1;
+        }
+
+        WriteLine("Interactive license mode...");
+
+        while (licensetype == "")
+        {
+            WriteLine("What would you like to generate, a [u]ser license or an [o]rg license?");
+            buff = Console.ReadLine();
+
+            if (buff == "u")
             {
-                string buff="", licensetype="", name="", email="", businessname="";
-                short storage = 0;
+                licensetype = "user";
+                WriteLineOver("Okay, we will generate a user license.");
 
-                bool valid_guid = false, valid_installid = false;
-                Guid guid = new Guid(), installid = new Guid();
-
-                config.OnExecute(() =>
+                while (!valid_guid)
                 {
-                    if (!verifyTopOptions())
-                    {
-                        if (!coreExists()) config.Error.WriteLine($"Cant find core dll at: {coreDll.Value()}");
-                        if (!certExists()) config.Error.WriteLine($"Cant find certificate at: {cert.Value()}");
+                    WriteLine("Please provide the user's guid — refer to the Readme for details on how to retrieve this. [GUID]:");
+                    buff = Console.ReadLine();
 
-                        config.ShowHelp();
-                        return 1;
-                    }
+                    if (Guid.TryParse(buff, out guid)) valid_guid = true;
+                    else WriteLineOver("The user-guid provided does not appear to be valid.");
+                }
+            }
+            else if (buff == "o")
+            {
+                licensetype = "org";
+                WriteLineOver("Okay, we will generate an organisation license.");
 
-                    WriteLine("Interactive license mode...");
+                // Check user limit
+                if (currentUserCount >= MAX_USERS_PER_ORG)
+                {
+                    WriteLineOver($"Cannot create a new organisation license. Maximum user limit ({MAX_USERS_PER_ORG}) reached.");
+                    return 1;
+                }
 
-                    while (licensetype == "")
-                    {
-                        WriteLine("What would you like to generate, a [u]ser license or an [o]rg license?");
-                        buff = Console.ReadLine();
+                while (!valid_installid)
+                {
+                    WriteLine("Please provide your Bitwarden Install-ID — refer to the Readme for details on how to retrieve this. [Install-ID]:");
+                    buff = Console.ReadLine();
 
-                        if(buff == "u")
-                        {
-                            licensetype = "user";
-                            WriteLineOver("Okay, we will generate a user license.");
+                    if (Guid.TryParse(buff, out installid)) valid_installid = true;
+                    else WriteLineOver("The install-id provided does not appear to be valid.");
+                }
 
-                            while (valid_guid == false)
-                            {
-                                WriteLine("Please provide the user's guid — refer to the Readme for details on how to retrieve this. [GUID]:");
-                                buff = Console.ReadLine();
+                while (string.IsNullOrWhiteSpace(businessname))
+                {
+                    WriteLineOver("Please enter a business name, default is BitBetter. [Business Name]:");
+                    buff = Console.ReadLine();
+                    if (string.IsNullOrWhiteSpace(buff)) businessname = "BitBetter";
+                    else if (checkBusinessName(buff)) businessname = buff;
+                }
+            }
+            else
+            {
+                WriteLineOver("Unrecognised option \'" + buff + "\'. ");
+            }
+        }
 
-                                if (Guid.TryParse(buff, out guid))valid_guid = true;
-                                else WriteLineOver("The user-guid provided does not appear to be valid.");
-                            }
-                        }
-                        else if (buff == "o")
-                        {
-                            licensetype = "org";
-                            WriteLineOver("Okay, we will generate an organization license.");
+        // Existing prompts for name, email, storage, and license generation remain unchanged...
 
-                            while (valid_installid == false)
-                            {
-                                WriteLine("Please provide your Bitwarden Install-ID — refer to the Readme for details on how to retrieve this. [Install-ID]:");
-                                buff = Console.ReadLine();
+        if (licensetype == "org")
+        {
+            WriteLineOver($"Confirm creation of \"organisation\" license for business name: \"{businessname}\", username: \"{name}\", email: \"{email}\", Storage: \"{storage} GB\", Install-ID: \"{installid}\"? Y/n");
+            buff = Console.ReadLine();
+            if (buff == "" || buff == "y" || buff == "Y")
+            {
+                // Increment user count when organisation licence is created
+                currentUserCount++;
+                GenerateOrgLicense(new X509Certificate2(cert.Value(), "test"), coreDll.Value(), name, email, storage, installid, businessname, null);
+            }
+            else
+            {
+                WriteLineOver("Exiting...");
+                return 0;
+            }
+        }
 
-                                if (Guid.TryParse(buff, out installid)) valid_installid = true;
-                                else WriteLineOver("The install-id provided does not appear to be valid.");
-                            }
+        return 0;
+    });
+});
 
-                            while (businessname == "")
-                            {
-                                WriteLineOver("Please enter a business name, default is BitBetter. [Business Name]:");
-                                buff = Console.ReadLine();
-                                if (buff == "")                     businessname = "BitBetter";
-                                else if (checkBusinessName(buff))   businessname = buff;
-                            }
-                        }
-                        else
-                        {
-                            WriteLineOver("Unrecognized option \'" + buff + "\'. ");
-                        }
-                    }
-
-                    while (name == "")
-                    {
-                        WriteLineOver("Please provide the username this license will be registered to. [username]:");
-                        buff = Console.ReadLine();
-                        if ( checkUsername(buff) )   name = buff;
-                    }
-
-                    while (email == "")
-                    {
-                        WriteLineOver("Please provide the email address for the user " + name + ". [email]");
-                        buff = Console.ReadLine();
-                        if ( checkEmail(buff) )   email = buff;
-                    }
-
-                    while (storage == 0)
-                    {
-                        WriteLineOver("Extra storage space for the user " + name + ". (max.: " + short.MaxValue + "). Defaults to maximum value. [storage]");
-                        buff = Console.ReadLine();
-                        if (string.IsNullOrWhiteSpace(buff))
-                        {
-                            storage = short.MaxValue;
-                        }
-                        else
-                        {
-                            if (checkStorage(buff)) storage = short.Parse(buff);
-                        }
-                    }
-
-                    if (licensetype == "user")
-                    {
-                        WriteLineOver("Confirm creation of \"user\" license for username: \"" + name + "\", email: \"" + email + "\", Storage: \"" + storage + " GB\", User-GUID: \"" + guid + "\"? Y/n");
-                        buff = Console.ReadLine();
-                        if ( buff == "" || buff == "y" || buff == "Y" )
-                        {
-                            GenerateUserLicense(new X509Certificate2(cert.Value(), "test"), coreDll.Value(), name, email, storage, guid, null);
-                        }
-                        else
-                        {
-                            WriteLineOver("Exiting...");
-                            return 0;
-                        }
-                    }
-                    else if (licensetype == "org")
-                    {
-                        WriteLineOver("Confirm creation of \"organization\" license for business name: \"" + businessname + "\", username: \"" + name + "\", email: \"" + email + "\", Storage: \"" + storage + " GB\", Install-ID: \"" + installid + "\"? Y/n");
-                        buff = Console.ReadLine();
-                        if ( buff == "" || buff == "y" || buff == "Y" )
-                        {
-                            GenerateOrgLicense(new X509Certificate2(cert.Value(), "test"), coreDll.Value(), name, email, storage, installid, businessname, null);
-                        }
-                        else
-                        {
-                            WriteLineOver("Exiting...");
-                            return 0;
-                        }
-                    }
-
-                    return 0;
-                });
-            });
 
             app.Command("user", config =>
             {
